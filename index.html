@@ -659,43 +659,59 @@
 //  Enough to make it unrecognisable as a YouTube video ID
 // ============================================================
 
+<script>
+/* Replace the old SALT_PREFIX / SHIFT / encodeVideoId / decodeToken implementation with the block below */
+
 const SALT_PREFIX = 'sky';
 const SHIFT = 7;
+const B64URL_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+function base64UrlEncode(str) {
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlDecode(b64u) {
+  // restore padding
+  let b64 = b64u.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  return atob(b64);
+}
 
 function encodeVideoId(videoId) {
-  // 1. base64 encode the video ID
-  const b64 = btoa(videoId);
-  // 2. shift each char code by SHIFT
-  const shifted = Array.from(b64).map(c => {
-    const code = c.charCodeAt(0);
-    // only shift alphanumeric chars, leave = and + and /
-    if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122) || (code >= 48 && code <= 57)) {
-      return String.fromCharCode(((code - 48 + SHIFT) % 75) + 48);
-    }
-    return c;
+  // 1. base64url encode the video ID (URL-safe, no '=' padding)
+  const b64u = base64UrlEncode(videoId);
+  // 2. shift each character inside the base64url alphabet
+  const shifted = Array.from(b64u).map(c => {
+    const idx = B64URL_CHARS.indexOf(c);
+    if (idx === -1) return c; // leave other chars (shouldn't be any) unchanged
+    return B64URL_CHARS[(idx + SHIFT) % B64URL_CHARS.length];
   }).join('');
   // 3. reverse the string
   const reversed = shifted.split('').reverse().join('');
-  // 4. prepend our prefix to make it look like an internal token
+  // 4. prepend our prefix
   return SALT_PREFIX + reversed;
 }
 
 function decodeToken(token) {
-  if (!token.startsWith(SALT_PREFIX)) return null;
+  if (!token || !token.startsWith(SALT_PREFIX)) return null;
   try {
+    // reverse the prefix and reversal
     const reversed = token.slice(SALT_PREFIX.length).split('').reverse().join('');
+    // unshift characters inside the alphabet
     const unshifted = Array.from(reversed).map(c => {
-      const code = c.charCodeAt(0);
-      if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122) || (code >= 48 && code <= 57)) {
-        return String.fromCharCode(((code - 48 - SHIFT + 75) % 75) + 48);
-      }
-      return c;
+      const idx = B64URL_CHARS.indexOf(c);
+      if (idx === -1) return c;
+      return B64URL_CHARS[(idx - SHIFT + B64URL_CHARS.length) % B64URL_CHARS.length];
     }).join('');
-    return atob(unshifted);
+    // decode base64url back to original video id
+    return base64UrlDecode(unshifted);
   } catch {
     return null;
   }
 }
+
+/* End replacement */
+</script>
 
 // ============================================================
 //  YOUTUBE URL PARSER
